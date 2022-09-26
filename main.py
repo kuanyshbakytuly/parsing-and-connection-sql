@@ -17,31 +17,21 @@ def pd_show():
     pd.set_option('display.max_colwidth', None)
 
 
-headers = {
-    'Host': 'data.egov.kz',
-    'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Cookie': 'lttping=1624524813693; _ga=GA1.2.119799985.1611131318; _ym_uid=16111313181057905347; _ym_d=1611131318; egovLang=ru; OPENDATA_PORTAL_SESSION=f0ef007816d35fcffd1ba6c7acbeda4803c47ed1-___AT=7974c2a8f0e554ef0b9822ffe585b67823bf7a85&___TS=1624528417591; cookiesession1=678B76A8HIOPQRSTUVWXYZABCEFGEF57; _gid=GA1.2.1616680045.1624524465; _ym_isad=1; _ym_visorc=w',
-    'Upgrade-Insecure-Requests': '1',
-    'Cache-Control': 'max-age=0',
-}
+headers = '{...}' #add your headers 
 
 user = 'SA'
 password = 'reallyStrongPwd123'
 server = '127.0.0.1'
 port = 1433
 database = 'AZURE'
-conn = sql.create_engine(url=f"mssql+pymssql://{user}:{password}@{server}:{port}/{database}", encoding='utf-8')
+conn = sql.create_engine(url=f"mssql+pymssql://{user}:{password}@{server}:{port}/{database}", encoding='utf-8') #connection with sql server
 
 register = input()
-meta_url = f'https://data.egov.kz/meta/{register}/data?pretty'
-sql_file = f"{register}"
+meta_url = f'https://data.egov.kz/meta/{register}/data?pretty' 
+sql_file = f"{register}" #the name of file in sql server
 
-
-def getting_meta_data(url):
+#creating dtype for each column
+def getting_meta_data(url): 
     r = requests.get(url, headers=headers, verify=False)
     d = {}
     pattern_dtype = {
@@ -64,6 +54,7 @@ def getting_meta_data(url):
 meta_data = getting_meta_data(url=meta_url)
 dtype = meta_data
 
+#quering from sql server to get buildings those have not been installed yet
 def recieveing_data_fromsql():
     quore = conn.execute(
         "select b.id from s_buildings_copy as b left join s_pb as p on b.id = p.s_building_id where p.s_building_id is NULL order by 1;")
@@ -72,7 +63,7 @@ def recieveing_data_fromsql():
         id_areas.append(str(row)[1:-2])
     return id_areas
 
-
+#quering from sql server to delete buildings those have been already installed
 def deleting_data_fromsql(which):
     quore = conn.execute(
         f"DELETE FROM s_buildings_copy WHERE id ={which};")
@@ -80,17 +71,19 @@ def deleting_data_fromsql(which):
 elements = recieveing_data_fromsql()
 
 c = 0
-data = pd.DataFrame(columns=list(meta_data.keys()))
+data = pd.DataFrame(columns=list(meta_data.keys())) #creating empty dataframe with columns
+
+#parsing
 for i in elements:
     c += 1
     count = 0
-    length = 1000
+    length = 1000 #because the site can provide max = 1000
 
-    if c % 1000:
-        data.to_sql(sql_file, dtype=dtype, con=conn, if_exists='append')
-        data = pd.DataFrame(columns=list(meta_data.keys()))
+    if c % 1000: #some buildings dont have apartments
+        data.to_sql(sql_file, dtype=dtype, con=conn, if_exists='append') #sending dataframe to sql server
+        data = pd.DataFrame(columns=list(meta_data.keys())) 
     while length == 1000:
-
+        #query
         url = f'https://data.egov.kz/api/v4/{register}/data?apiKey=9b5655c01992497bb7e4f3d3c5cefd3d&source=' \
               + '{"from": ' + str(count * 1000) + ',"size": 1000,' \
                                                   '"query":{' \
@@ -101,9 +94,9 @@ for i in elements:
                                                                                       '}' \
                                                                                       '}' \
                                                                                       '}'
-        print(url)
         count += 1
-        r = requests.get(url, headers=headers, verify=False)
+        #request with headers -
+        r = requests.get(url, headers=headers, verify=False) 
         try:
             if r.status_code != 204:
                 rjs = r.json()
@@ -112,9 +105,10 @@ for i in elements:
                     deleting_data_fromsql(which=i)
                     length = 0
                 else:
+               
                     data.append(pd.DataFrame(rjs), ignore_index=True)
                     length = l
         except ValueError:
             count -= 1
-            sleep(5)
+            sleep(5) #necessary part because of avoiding blocks by the site
         print(f'{i}: {c} --- {count}')
